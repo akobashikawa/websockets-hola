@@ -4,27 +4,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Websockets Hola</title>
+    <title>Websockets Nativos Hola</title>
     <link rel="stylesheet" href="https://matcha.mizu.sh/matcha.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
 </head>
 
 <body>
     <div id="app">
-        <h1>Websockets Hola</h1>
+        <h1>Websockets Nativo Hola</h1>
         
         <p v-if="loading">Loading...</p>
         <p v-else-if="error">{{ error }}</p>
 
         <ul>
-            <li><button type="button" class="default" @click="getData">/api/get-data</button></li>
+            <li><button type="button" class="default" @click="getData">/api/get-data (HTTP Manual)</button></li>
             <li>
                 <label>
-                    <input type="text" v-model="inputData" />
-                    <button type="button" class="variant" @click="postData">/api/post-data</button>
+                    <input type="text" v-model="inputData" @keyup.enter="postData" />
+                    <button type="button" class="variant" @click="postData">Enviar por WebSocket</button>
                 </label>
             </li>
-            <li><a href="page2.html" target="_blank">Page2</a></li>
+            <li><a href="index.html" target="_blank">Abrir otra pestaña idéntica</a></li>
         </ul>
 
         <pre>{{ data }}</pre>
@@ -35,18 +35,56 @@
 
         const app = createApp({
             setup() {
-
                 const inputData = ref('');
-                const data = ref([]);
+                const data = ref({});
                 const loading = ref(false);
                 const error = ref(null);
+                let socket = null;
 
+                // Inicializar la conexión WebSocket nativa
+                function initWebSocket() {
+                    // Usamos la API nativa del navegador: WebSocket
+                    // 'ws://' es el protocolo para conexiones no cifradas (equivalente a http)
+                    socket = new WebSocket(`ws://${window.location.host}`);
+
+                    // Escuchamos cuando el backend nos mande datos
+                    socket.onmessage = (event) => {
+                        const response = JSON.parse(event.data);
+                        data.value = response;
+                        inputData.value = response.data;
+                    };
+
+                    socket.onerror = (err) => {
+                        error.value = "Error en la conexión WebSocket";
+                    };
+
+                    socket.onclose = () => {
+                        console.log("WebSocket cerrado. Intentando reconectar...");
+                        setTimeout(initWebSocket, 2000); // Intento de reconexión básico
+                    };
+                }
+
+                // Tu función original modificada para enviar vía Socket en vez de fetch
+                async function postData() {
+                    if (!socket || socket.readyState !== WebSocket.OPEN) {
+                        error.value = "El socket no está listo";
+                        return;
+                    }
+
+                    const payload = {
+                        action: 'post-data',
+                        data: inputData.value
+                    };
+
+                    // Enviamos los datos directamente como texto plano (JSON string)
+                    socket.send(JSON.stringify(payload));
+                }
+
+                // Mantenemos tu GET original por si quieres verificar manualmente el HTTP
                 async function getData() {
-                    const url = '/api/get-data';
-
                     loading.value = true;
                     try {
-                        const response = await fetch(url);
+                        const response = await fetch('/api/get-data');
                         if (!response.ok) throw new Error('Error doing GET data');
                         data.value = await response.json();
                         inputData.value = data.value.data;
@@ -57,28 +95,9 @@
                     }
                 }
 
-                async function postData() {
-                    const url = '/api/post-data';
-                    const _postData = { data: inputData.value };
-
-                    loading.value = true;
-                    try {
-                        const response = await fetch(url, {
-                            method: 'POST',
-                            headers: {
-                                'Content-type': 'application/json; charset=UTF-8',
-                            },
-                            body: JSON.stringify(_postData),
-                        });
-                        if (!response.ok) throw new Error('Error doing POST data');
-                        data.value = await response.json();
-                        
-                    } catch (err) {
-                        error.value = err.message;
-                    } finally {
-                        loading.value = false;
-                    }
-                };
+                onMounted(() => {
+                    initWebSocket();
+                });
 
                 return {
                     loading,
