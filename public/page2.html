@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page2</title>
+    <link rel="stylesheet" href="https://matcha.mizu.sh/matcha.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+
+<body>
+    <div id="app">
+        <h1>Page2</h1>
+        {{ message }}
+        <p v-if="loading">Loading...</p>
+        <p v-else-if="error">{{ error }}</p>
+
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        const app = createApp({
+            setup() {
+                const message = ref('Hello!');
+
+                const data = ref([]);
+                const loading = ref(false);
+                const error = ref(null);
+
+                return {
+                    message,
+                    loading,
+                    data,
+                    error,
+                }
+            }
+        });
+
+        app.mount('#app');
+    </script>
+</body>
+
+</html>

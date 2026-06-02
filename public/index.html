@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Websockets Hola</title>
+    <link rel="stylesheet" href="https://matcha.mizu.sh/matcha.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+
+<body>
+    <div id="app">
+        <h1>Websockets Hola</h1>
+        
+        <p v-if="loading">Loading...</p>
+        <p v-else-if="error">{{ error }}</p>
+
+        <ul>
+            <li><button type="button" class="default" @click="getData">/api/get-data</button></li>
+            <li>
+                <label>
+                    <input type="text" v-model="inputData" />
+                    <button type="button" class="variant" @click="postData">/api/post-data</button>
+                </label>
+            </li>
+            <li><a href="page2.html" target="_blank">Page2</a></li>
+        </ul>
+
+        <pre>{{ data }}</pre>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        const app = createApp({
+            setup() {
+
+                const inputData = ref('');
+                const data = ref([]);
+                const loading = ref(false);
+                const error = ref(null);
+
+                async function getData() {
+                    const url = '/api/get-data';
+
+                    loading.value = true;
+                    try {
+                        const response = await fetch(url);
+                        if (!response.ok) throw new Error('Error doing GET data');
+                        data.value = await response.json();
+                        inputData.value = data.value.data;
+                    } catch (err) {
+                        error.value = err.message;
+                    } finally {
+                        loading.value = false;
+                    }
+                }
+
+                async function postData() {
+                    const url = '/api/post-data';
+                    const _postData = { data: inputData.value };
+
+                    loading.value = true;
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-type': 'application/json; charset=UTF-8',
+                            },
+                            body: JSON.stringify(_postData),
+                        });
+                        if (!response.ok) throw new Error('Error doing POST data');
+                        data.value = await response.json();
+                        
+                    } catch (err) {
+                        error.value = err.message;
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                return {
+                    loading,
+                    inputData,
+                    data,
+                    error,
+                    getData,
+                    postData,
+                }
+            }
+        });
+
+        app.mount('#app');
+    </script>
+</body>
+
+</html>
