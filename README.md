@@ -68,11 +68,12 @@ const clients = new Map(); // id -> ws
 
 El servidor levanta un `WebSocketServer` sobre el mismo servidor HTTP (`server.js:27`). Al conectarse un cliente:
 
-1. Se le asigna un `id` incremental (`server.js:50`), se guarda en `clients` y se loguea como `Cliente #N conectado` (`server.js:53`).
-2. Recibe inmediatamente el estado actual (`server.js:56`).
-3. Puede enviar mensajes JSON con la forma `{ "action": "post-data", "data": "..." }` para actualizar el estado (`server.js:59-70`).
-4. Cualquier cambio se retransmite a **todos** los clientes conectados vía `broadcastState` (`server.js:30-38`).
-5. Al desconectarse se elimina del `Map` y se loguea como `Cliente #N desconectado` (`server.js:72-75`).
+1. Se le asigna un `id` incremental (`server.js:50`), se guarda en `clients` y se loguea como `Cliente conectado vía WebSocket Nativo: N` (`server.js:53`).
+2. Recibe inmediatamente el estado actual **incluyendo su id**, fusionando `{ id }` con `appState` (`server.js:56-57`).
+3. Puede enviar mensajes JSON con la forma `{ "action": "post-data", "data": "..." }` para actualizar el estado. Cada mensaje recibido se loguea con el id del cliente (`server.js:63`).
+4. Tras un `post-data` el servidor le envía **solo a ese cliente** una confirmación uno-a-uno con `sendTo` (`server.js:66`) y luego hace `broadcastState()` a todos (`server.js:68`).
+5. El broadcast sigue mandando `appState` puro (sin id) a todos los abiertos (`server.js:30-38`).
+6. Al desconectarse se elimina del `Map` y se loguea como `Cliente #N desconectado` (`server.js:75-78`).
 
 ### Mensajes uno-a-uno con `sendTo`
 
@@ -84,10 +85,17 @@ sendTo(1, { type: 'ping', msg: 'hola cliente 1' });
 
 Si el id no existe o el socket ya no está abierto, simplemente no hace nada.
 
+En este proyecto se usa concretamente en el handler de `post-data` para confirmar la recepción al cliente que escribió:
+
+```js
+sendTo(id, { message: `data recibida desde: ${ id }` });
+```
+
 ### Cliente
 
-`public/index.html` abre una conexión con `new WebSocket(\`ws://${window.location.host}\`)` (`public/index.html:48`) y:
+`public/index.html` abre una conexión con `new WebSocket(\`ws://${window.location.host}\`)` (`public/index.html:49`) y:
 
+- Lee su propio `id` del primer mensaje que recibe (`response.id`) y lo muestra en el título: `Websockets Nativos Hola [<id>]` (`public/index.html:14,55`).
 - Reacciona a `onmessage` actualizando la vista y el input.
 - Reintenta la conexión cada 2 s ante `onclose`.
 - Envía datos con `socket.send(JSON.stringify({ action: 'post-data', data }))`.
@@ -112,23 +120,25 @@ sequenceDiagram
     S-->>C2: 101 Switching Protocols
     Note over S: asigna id=2, guarda en clients
 
-    Note over S: on connection
-    S->>C1: { "data": "HOLA" }
-    S->>C2: { "data": "HOLA" }
+    Note over S: on connection<br>(state = Object.assign({id}, appState))
+    S->>C1: { "id": 1, "data": "HOLA" }
+    S->>C2: { "id": 2, "data": "HOLA" }
 
     Note over C1,S: Cliente 1 actualiza el estado
     C1->>S: { "action": "post-data", "data": "bye" }
 
-    Note over S: actualiza appState<br>y llama broadcastState()
+    Note over S: 1) sendTo(1, ...) — confirma<br>solo al emisor
+    S->>C1: { "message": "data recibida desde: 1" }
+    Note over C2: El cliente 2 NO recibe la confirmación
+
+    Note over S: 2) broadcastState() — actualiza a todos
     S->>C1: { "data": "bye" }
     S->>C2: { "data": "bye" }
 
-    Note over S: ejemplo de mensaje uno-a-uno<br>con sendTo(1, ...)
-    S->>C1: { "type": "ping", "msg": "solo para vos" }
-    Note over C2: El cliente 2 NO recibe este mensaje
-
     Note over C2,S: Cliente 2 también puede emitir
     C2->>S: { "action": "post-data", "data": "hola de nuevo" }
+    Note over S: sendTo(2, ...) solo a C2
+    S->>C2: { "message": "data recibida desde: 2" }
     S->>C1: { "data": "hola de nuevo" }
     S->>C2: { "data": "hola de nuevo" }
 
@@ -147,16 +157,28 @@ Como referencia, el flujo por HTTP sigue el mismo principio: `POST /api/post-dat
 { "action": "post-data", "data": "texto a guardar" }
 ```
 
+### Servidor → Cliente (al conectarse, uno-a-uno)
+
+Es el primer mensaje que recibe cada cliente. Incluye su propio `id` fusionado con el estado:
+
+```json
+{ "id": 1, "data": "HOLA" }
+```
+
 ### Servidor → Clientes (broadcast)
+
+Tras un `post-data` (vía socket o vía `POST /api/post-data`), se reenvía `appState` a todos los sockets abiertos:
 
 ```json
 { "data": "texto actual" }
 ```
 
-### Servidor → Cliente (uno-a-uno, vía `sendTo`)
+### Servidor → Cliente (confirmación uno-a-uno tras `post-data`)
+
+Después de aplicar el cambio, el servidor le envía **solo al emisor** una confirmación vía `sendTo`:
 
 ```json
-{ "type": "ping", "msg": "solo para vos" }
+{ "message": "data recibida desde: 1" }
 ```
 
 ## Notas
