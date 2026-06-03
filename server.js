@@ -17,6 +17,10 @@ let appState = {
     data: 'HOLA', // Estado inicial
 };
 
+// Mapa de clientes conectados por id (para mensajes uno-a-uno)
+let nextClientId = 1;
+const clients = new Map(); // id -> ws
+
 // Creamos un servidor HTTP combinando Express
 const server = http.createServer(app);
 // Levantamos el servidor WebSocket Nativo encima del HTTP
@@ -33,28 +37,45 @@ function broadcastState() {
     });
 }
 
+// Enviar un mensaje solo a un cliente por id
+function sendTo(id, payload) {
+    const client = clients.get(id);
+    if (client && client.readyState === 1) {
+        client.send(JSON.stringify(payload));
+    }
+}
+
 // Escuchamos las conexiones de WebSocket
 wss.on('connection', (ws) => {
-    console.log('Cliente conectado vía WebSocket Nativo');
+    const id = nextClientId++;
+    ws.id = id;
+    clients.set(id, ws);
+    console.log(`Cliente conectado vía WebSocket Nativo: ${id}`);
     
     // Apenas se conecta un cliente, le mandamos el estado actual
-    ws.send(JSON.stringify(appState));
+    const clientState = Object.assign({ id }, appState);
+    ws.send(JSON.stringify(clientState));
 
     // Escuchamos si este cliente nos manda un mensaje directo por el socket
     ws.on('message', (message) => {
         try {
             const parsed = JSON.parse(message);
+            console.log(id, parsed);
             if (parsed.action === 'post-data') {
                 appState.data = parsed.data || '-';
+                sendTo(id, { message: `data recibida desde: ${ id }` })
                 // Avisamos a todo el mundo que el estado cambió
                 broadcastState();
             }
         } catch (err) {
-            console.error("Error procesando mensaje del socket:", err);
+            console.error(`Error procesando mensaje del cliente #${id}:`, err);
         }
     });
 
-    ws.on('close', () => console.log('Cliente desconectado'));
+    ws.on('close', () => {
+        clients.delete(id);
+        console.log(`Cliente #${id} desconectado`);
+    });
 });
 
 // Mantenemos tus rutas HTTP por si acaso las quieres seguir probando
