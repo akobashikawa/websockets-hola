@@ -1,6 +1,6 @@
 # Websockets Hola
 
-Proyecto de estudio para experimentar con la comunicación **cliente ↔ servidor**. Esta rama (`01-client-server`) es el primer paso: solo HTTP, sin WebSockets. La idea es sentar las bases de un flujo tipo "redirección por QR" — un cliente (PC) consulta el estado y otro (celular, simulando el escaneo de un QR) lo actualiza.
+Proyecto de estudio para experimentar con la comunicación **cliente ↔ servidor**. Esta rama (`01-client-server`) es el primer paso: solo HTTP, sin WebSockets.
 
 ## Stack
 
@@ -150,4 +150,4 @@ Respuesta:
 
 - Esta rama es **solo HTTP**. No hay WebSockets, ni broadcast, ni push al cliente: cada pestaña tiene que volver a pedir el estado para enterarse de un cambio.
 - El estado vive **solo en memoria**: si reiniciás el servidor, vuelve a `HOLA`.
-- El nombre de la rama (`01-client-server`) sugiere que es la primera etapa; seguramente la siguiente introduce WebSockets para que el servidor empuje los cambios al cliente sin necesidad de recargar.
+
