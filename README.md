@@ -4,6 +4,8 @@ Proyecto de estudio para aprender y experimentar con **WebSockets nativos** en N
 
 La idea es mantener un pequeño **estado compartido en el servidor** que se sincroniza en tiempo real con todos los clientes conectados: cualquier mensaje enviado por un cliente se retransmite automáticamente a los demás.
 
+Además, cada cliente recibe un **id numérico incremental** al conectarse, se registra en un `Map` en el servidor y queda disponible para enviarle mensajes individuales con el helper `sendTo()`.
+
 ## Stack
 
 - **Backend:** Node.js + Express 5 + `ws` (WebSocket nativo)
@@ -46,11 +48,16 @@ Abre varias pestañas en `http://localhost:3000` para ver cómo el estado se sin
 
 ### Estado en memoria
 
-El servidor guarda un único objeto en memoria:
+El servidor guarda un único objeto en memoria y un registro de clientes:
 
 ```js
 let appState = { data: 'HOLA' };
+
+let nextClientId = 1;
+const clients = new Map(); // id -> ws
 ```
+
+`clients` mapea el `id` incremental de cada conexión a su instancia `ws`, y se usa para enviar mensajes uno-a-uno.
 
 ### Endpoints HTTP (legado / debug)
 
@@ -59,11 +66,23 @@ let appState = { data: 'HOLA' };
 
 ### WebSocket nativo
 
-El servidor levanta un `WebSocketServer` sobre el mismo servidor HTTP (`server.js:23`). Al conectarse un cliente:
+El servidor levanta un `WebSocketServer` sobre el mismo servidor HTTP (`server.js:27`). Al conectarse un cliente:
 
-1. Recibe inmediatamente el estado actual (`server.js:41`).
-2. Puede enviar mensajes JSON con la forma `{ "action": "post-data", "data": "..." }` para actualizar el estado (`server.js:44-55`).
-3. Cualquier cambio se retransmite a **todos** los clientes conectados vía `broadcastState` (`server.js:26-34`).
+1. Se le asigna un `id` incremental (`server.js:50`), se guarda en `clients` y se loguea como `Cliente #N conectado` (`server.js:53`).
+2. Recibe inmediatamente el estado actual (`server.js:56`).
+3. Puede enviar mensajes JSON con la forma `{ "action": "post-data", "data": "..." }` para actualizar el estado (`server.js:59-70`).
+4. Cualquier cambio se retransmite a **todos** los clientes conectados vía `broadcastState` (`server.js:30-38`).
+5. Al desconectarse se elimina del `Map` y se loguea como `Cliente #N desconectado` (`server.js:72-75`).
+
+### Mensajes uno-a-uno con `sendTo`
+
+El helper `sendTo(id, payload)` (`server.js:40-46`) permite enviarle un mensaje a un cliente puntual por su id, sin tocar al resto:
+
+```js
+sendTo(1, { type: 'ping', msg: 'hola cliente 1' });
+```
+
+Si el id no existe o el socket ya no está abierto, simplemente no hace nada.
 
 ### Cliente
 
@@ -87,9 +106,11 @@ sequenceDiagram
     Note over C1,S: Handshake HTTP → Upgrade a WebSocket
     C1->>S: HTTP GET / (Upgrade: websocket)
     S-->>C1: 101 Switching Protocols
+    Note over S: asigna id=1, guarda en clients
 
     C2->>S: HTTP GET / (Upgrade: websocket)
     S-->>C2: 101 Switching Protocols
+    Note over S: asigna id=2, guarda en clients
 
     Note over S: on connection
     S->>C1: { "data": "HOLA" }
@@ -102,6 +123,10 @@ sequenceDiagram
     S->>C1: { "data": "bye" }
     S->>C2: { "data": "bye" }
 
+    Note over S: ejemplo de mensaje uno-a-uno<br>con sendTo(1, ...)
+    S->>C1: { "type": "ping", "msg": "solo para vos" }
+    Note over C2: El cliente 2 NO recibe este mensaje
+
     Note over C2,S: Cliente 2 también puede emitir
     C2->>S: { "action": "post-data", "data": "hola de nuevo" }
     S->>C1: { "data": "hola de nuevo" }
@@ -109,7 +134,7 @@ sequenceDiagram
 
     Note over C1,S: Cierre de un cliente
     C1-->>S: close
-    Note over S: ws.on('close') → log<br>(el broadcast sigue activo)
+    Note over S: clients.delete(1)<br>log: "Cliente #1 desconectado"<br>(el broadcast sigue activo para los demás)
 ```
 
 Como referencia, el flujo por HTTP sigue el mismo principio: `POST /api/post-data` también dispara el `broadcast` a todos los sockets abiertos.
@@ -128,8 +153,14 @@ Como referencia, el flujo por HTTP sigue el mismo principio: `POST /api/post-dat
 { "data": "texto actual" }
 ```
 
+### Servidor → Cliente (uno-a-uno, vía `sendTo`)
+
+```json
+{ "type": "ping", "msg": "solo para vos" }
+```
+
 ## Notas
 
-- El estado vive **solo en memoria**: si reinicias el servidor se pierde.
+- El estado y el `Map` de clientes viven **solo en memoria**: si reinicias el servidor se pierden. El contador `nextClientId` también se reinicia, así que los ids pueden repetirse entre ejecuciones.
 - No hay autenticación ni salas: todos los clientes comparten el mismo estado.
 - El proyecto es deliberadamente simple; es una base para experimentar.
