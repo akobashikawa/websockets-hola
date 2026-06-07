@@ -4,14 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Websockets Nativos Hola</title>
+    <title>Sockert.io Hola</title>
     <link rel="stylesheet" href="https://matcha.mizu.sh/matcha.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
 </head>
 
 <body>
     <div id="app">
-        <h1>Websockets Nativos Hola [{{ clientId }}]</h1>
+        <h1>Sockert.io Hola [{{ clientId }}]</h1>
         
         <p v-if="loading">Loading...</p>
         <p v-else-if="error">{{ error }}</p>
@@ -38,49 +39,52 @@
                 const inputData = ref('');
                 const clientId = ref(null);
                 const data = ref({});
+                const serverFeedback = ref(null);
                 const loading = ref(false);
                 const error = ref(null);
                 let socket = null;
 
                 // Inicializar la conexión WebSocket nativa
-                function initWebSocket() {
-                    // Usamos la API nativa del navegador: WebSocket
-                    // 'ws://' es el protocolo para conexiones no cifradas (equivalente a http)
-                    socket = new WebSocket(`ws://${window.location.host}`);
+                function initSocketIO() {
+                    // io() se conecta automáticamente al host que sirve la página
+                    socket = io();
 
-                    // Escuchamos cuando el backend nos mande datos
-                    socket.onmessage = (event) => {
-                        const response = JSON.parse(event.data);
-                        console.log(response);
+                    // Escuchamos el estado inicial cuando nos conectamos
+                    socket.on('init-state', (response) => {
+                        console.log("Inicializado:", response);
                         clientId.value = response.id;
                         data.value = response;
                         inputData.value = response.data;
-                    };
+                    });
 
-                    socket.onerror = (err) => {
-                        error.value = "Error en la conexión WebSocket";
-                    };
+                    // Escuchamos el broadcast global cuando alguien cambia la data
+                    socket.on('state-changed', (newState) => {
+                        console.log("El estado cambió globalmente:", newState);
+                        data.value = newState;
+                        inputData.value = newState.data;
+                    });
 
-                    socket.onclose = () => {
-                        console.log("WebSocket cerrado. Intentando reconectar...");
-                        setTimeout(initWebSocket, 2000); // Intento de reconexión básico
-                    };
+                    // Escuchamos el mensaje exclusivo uno-a-uno
+                    socket.on('feedback', (msg) => {
+                        serverFeedback.value = msg;
+                    });
+
+                    // Socket.io maneja la reconexión por nosotros, pero podemos enterarnos si se cae
+                    socket.on('disconnect', () => {
+                        console.log("Perdimos conexión con el servidor");
+                    });
                 }
 
                 // Tu función original modificada para enviar vía Socket en vez de fetch
                 async function postData() {
-                    if (!socket || socket.readyState !== WebSocket.OPEN) {
-                        error.value = "El socket no está listo";
+                    if (!socket || !socket.connected) {
+                        error.value = "El socket no está conectado";
                         return;
                     }
 
-                    const payload = {
-                        action: 'post-data',
-                        data: inputData.value
-                    };
-
-                    // Enviamos los datos directamente como texto plano (JSON string)
-                    socket.send(JSON.stringify(payload));
+                    // En lugar de enviar un JSON de texto plano con una acción adentro,
+                    // disparamos un evento con nombre propio y el objeto directamente.
+                    socket.emit('post-data', { data: inputData.value });
                 }
 
                 // Mantenemos tu GET original por si quieres verificar manualmente el HTTP
@@ -99,7 +103,7 @@
                 }
 
                 onMounted(() => {
-                    initWebSocket();
+                    initSocketIO();
                 });
 
                 return {
@@ -107,6 +111,7 @@
                     inputData,
                     clientId,
                     data,
+                    serverFeedback,
                     error,
                     getData,
                     postData,

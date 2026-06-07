@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const http = require('http');
-const { WebSocketServer } = require('ws');
+const { Server } = require('socket.io'); // Importamos Socket.io
 
 const app = express();
 const PORT = 3000;
@@ -17,14 +17,12 @@ let appState = {
     data: 'HOLA', // Estado inicial
 };
 
-// Mapa de clientes conectados por id (para mensajes uno-a-uno)
-let nextClientId = 1;
-const clients = new Map(); // id -> ws
-
 // Creamos un servidor HTTP combinando Express
 const server = http.createServer(app);
-// Levantamos el servidor WebSocket Nativo encima del HTTP
-const wss = new WebSocketServer({ server });
+// Inicializamos Socket.io sobre el servidor HTTP
+const io = new Server(server, {
+    cors: { origin: "*" } // Permitir conexiones desde cualquier origen para pruebas
+});
 
 // Función para enviar el estado actual a TODOS los clientes conectados
 function broadcastState() {
@@ -45,36 +43,30 @@ function sendTo(id, payload) {
     }
 }
 
-// Escuchamos las conexiones de WebSocket
-wss.on('connection', (ws) => {
-    const id = nextClientId++;
-    ws.id = id;
-    clients.set(id, ws);
-    console.log(`Cliente conectado vía WebSocket Nativo: ${id}`);
+// Escuchamos las conexiones de Socket.io
+io.on('connection', (socket) => {
+    // Socket.io genera automáticamente un ID alfanumérico único para cada pestaña: socket.id
+    console.log(`Cliente conectado vía Socket.io: ${socket.id}`);
     
-    // Apenas se conecta un cliente, le mandamos el estado actual
-    const clientState = Object.assign({ id }, appState);
-    ws.send(JSON.stringify(clientState));
+    // Apenas se conecta, le enviamos su ID y el estado actual
+    // Nota que podemos pasar un Objeto JS directamente, ¡Socket.io lo serializa solo!
+    socket.emit('init-state', Object.assign({ id: socket.id }, appState));
 
-    // Escuchamos si este cliente nos manda un mensaje directo por el socket
-    ws.on('message', (message) => {
-        try {
-            const parsed = JSON.parse(message);
-            console.log(id, parsed);
-            if (parsed.action === 'post-data') {
-                appState.data = parsed.data || '-';
-                sendTo(id, { message: `data recibida desde: ${ id }` })
-                // Avisamos a todo el mundo que el estado cambió
-                broadcastState();
-            }
-        } catch (err) {
-            console.error(`Error procesando mensaje del cliente #${id}:`, err);
-        }
+    // En lugar de un "if (action === '...')" gigante, creamos escuchadores por evento
+    socket.on('post-data', (payload) => {
+        console.log(`${socket.id}:`, payload);
+        
+        appState.data = payload.data || '-';
+        
+        // Responderle uno-a-uno al cliente que envió el mensaje
+        socket.emit('feedback', { message: `data recibida desde tu propia pestaña` });
+        
+        // Broadcast: Avisamos a TODOS los clientes conectados que el estado cambió
+        io.emit('state-changed', appState);
     });
 
-    ws.on('close', () => {
-        clients.delete(id);
-        console.log(`Cliente #${id} desconectado`);
+    socket.on('disconnect', () => {
+        console.log(`Cliente ${socket.id} desconectado`);
     });
 });
 
@@ -85,7 +77,7 @@ app.get('/api/get-data', (req, res) => {
 
 app.post('/api/post-data', (req, res) => {
     appState.data = req.body.data || '-';
-    broadcastState(); // También notificamos por socket si usan la ruta HTTP
+    // broadcastState(); // También notificamos por socket si usan la ruta HTTP
     res.json(appState);
 });
 
