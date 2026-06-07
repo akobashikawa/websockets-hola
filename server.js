@@ -26,21 +26,12 @@ const io = new Server(server, {
 
 // Función para enviar el estado actual a TODOS los clientes conectados
 function broadcastState() {
-    const message = JSON.stringify(appState);
-    wss.clients.forEach((client) => {
-        // Verificamos que la conexión esté abierta
-        if (client.readyState === 1) { 
-            client.send(message);
-        }
-    });
+    io.emit('state-changed', appState);
 }
 
-// Enviar un mensaje solo a un cliente por id
-function sendTo(id, payload) {
-    const client = clients.get(id);
-    if (client && client.readyState === 1) {
-        client.send(JSON.stringify(payload));
-    }
+// Enviar un mensaje solo a un cliente por socket.id
+function sendTo(id, eventName, ...args) {
+    io.to(id).emit(eventName, ...args);
 }
 
 // Escuchamos las conexiones de Socket.io
@@ -77,7 +68,7 @@ app.get('/api/get-data', (req, res) => {
 
 app.post('/api/post-data', (req, res) => {
     appState.data = req.body.data || '-';
-    // broadcastState(); // También notificamos por socket si usan la ruta HTTP
+    broadcastState(); // También notificamos por socket si usan la ruta HTTP
     res.json(appState);
 });
 
