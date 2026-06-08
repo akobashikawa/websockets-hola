@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sockert.io Hola</title>
+    <title>Gateway + REST API</title>
     <link rel="stylesheet" href="https://matcha.mizu.sh/matcha.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="/socket.io/socket.io.js"></script>
@@ -12,7 +12,7 @@
 
 <body>
     <div id="app">
-        <h1>Sockert.io Hola [{{ clientId }}]</h1>
+        <h1>Gateway + REST API [{{ clientId }}]</h1>
         
         <p v-if="loading">Loading...</p>
         <p v-else-if="error">{{ error }}</p>
@@ -22,7 +22,7 @@
             <li>
                 <label>
                     <input type="text" v-model="inputData" @keyup.enter="postData" />
-                    <button type="button" class="variant" @click="postData">POST via WebSocket</button>
+                    <button type="button" class="variant" @click="postData">POST via REST API</button>
                 </label>
             </li>
             <li><a href="index.html" target="_blank">Abrir otra pestaña idéntica</a></li>
@@ -39,15 +39,15 @@
                 const inputData = ref('');
                 const clientId = ref(null);
                 const data = ref({});
-                const serverFeedback = ref(null);
                 const loading = ref(false);
                 const error = ref(null);
+                const API_URL = 'http://localhost:3001';
                 let socket = null;
 
                 // Inicializar la conexión WebSocket nativa
                 function initSocketIO() {
-                    // io() se conecta automáticamente al host que sirve la página
-                    socket = io();
+                    // Conectamos explícitamente al Gateway (puerto 3000)
+                    socket = io('http://localhost:3000');
 
                     // Escuchamos el estado inicial cuando nos conectamos
                     socket.on('init-state', (response) => {
@@ -64,34 +64,32 @@
                         inputData.value = newState.data;
                     });
 
-                    // Escuchamos el mensaje exclusivo uno-a-uno
-                    socket.on('feedback', (msg) => {
-                        serverFeedback.value = msg;
-                    });
-
                     // Socket.io maneja la reconexión por nosotros, pero podemos enterarnos si se cae
                     socket.on('disconnect', () => {
                         console.log("Perdimos conexión con el servidor");
                     });
                 }
 
-                // Tu función original modificada para enviar vía Socket en vez de fetch
+                // POST vía REST API (no WebSocket)
                 async function postData() {
-                    if (!socket || !socket.connected) {
-                        error.value = "El socket no está conectado";
-                        return;
+                    try {
+                        const response = await fetch(`${API_URL}/api/post-data`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ data: inputData.value }),
+                        });
+                        if (!response.ok) throw new Error('Error en POST');
+                        // El broadcast llegará vía Socket.io (Redis → Gateway → clientes)
+                    } catch (err) {
+                        error.value = err.message;
                     }
-
-                    // En lugar de enviar un JSON de texto plano con una acción adentro,
-                    // disparamos un evento con nombre propio y el objeto directamente.
-                    socket.emit('post-data', { data: inputData.value });
                 }
 
-                // Mantenemos tu GET original por si quieres verificar manualmente el HTTP
+                // GET vía REST API
                 async function getData() {
                     loading.value = true;
                     try {
-                        const response = await fetch('/api/get-data');
+                        const response = await fetch(`${API_URL}/api/get-data`);
                         if (!response.ok) throw new Error('Error doing GET data');
                         data.value = await response.json();
                         inputData.value = data.value.data;
@@ -111,7 +109,6 @@
                     inputData,
                     clientId,
                     data,
-                    serverFeedback,
                     error,
                     getData,
                     postData,
